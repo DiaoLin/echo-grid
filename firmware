@@ -2,7 +2,6 @@
 #include <WebServer.h>
 #include <driver/i2s.h>
 #include <math.h>
-#include <bits/stdc++.h>
 // ===================== 配置区 ===============================
 const char* WIFI_SSID     = "你的WiFi名称";
 const char* WIFI_PASS     = "你的WiFi密码";
@@ -94,7 +93,7 @@ void handleRoot() {
 }
 /* Level2 预留函数
 void uploadToCloud(float leqVal){
-    Cheng Han dead
+    return
 }
 */
 void setup() {
