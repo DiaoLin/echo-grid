@@ -19,6 +19,11 @@ float energySum = 0.0;
 uint32_t totalSamples = 0;
 float lastLeq = 0.0;
 float lastLp = 0.0;
+
+// 新增：用于时间窗口计时
+uint32_t windowStartMs = 0;
+const uint32_t WINDOW_MS = LEQ_DURATION * 1000;
+
 const i2s_config_t i2s_config = {
 	.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
 	.sample_rate = SAMPLE_RATE,
@@ -70,22 +75,27 @@ bool readInstantLp(float &outLp) {
 	lastLp = lp;
 	return true;
 }
+
 void updateLeq() {
 	float lp;
 	if(!readInstantLp(lp)) return;
 
-	float energy = pow(10.0, lp / 10.0);
-	energySum += energy;
+	float energy = pow(10.0f, lp / 10.0f);
+	energySum += energy * FRAME_SAMPLES;
 	totalSamples += FRAME_SAMPLES;
 
-	uint32_t windowSamples = SAMPLE_RATE * LEQ_DURATION;
-	if(totalSamples >= windowSamples) {
+	// 基于真实时间判断窗口是否到期
+	uint32_t now = millis();
+	if (now - windowStartMs >= WINDOW_MS && totalSamples > 0) {
 		float avgEnergy = energySum / totalSamples;
 		lastLeq = 10 * log10(avgEnergy);
+		// 重置窗口
 		energySum = 0;
 		totalSamples = 0;
+		windowStartMs = now;
 	}
 }
+
 void handleApiData() {
 	String json = "{";
 	json += "\"point_id\":\"P01\",";
@@ -97,15 +107,12 @@ void handleApiData() {
 	json += "}";
 	server.send(200, "application/json", json);
 }
+
 void handleRoot() {
 	server.send(200, "text/plain",
 	            "EchoGrid Node | Level1\n/api/data 获取噪声JSON\nFlow: INMP441-I2S->ESP32(Leq)->Web JSON");
 }
-/* Level2 预留函数
-void uploadToCloud(float leqVal){
-    return
-}
-*/
+
 void setup() {
 	Serial.begin(115200);
 	delay(300);
@@ -114,21 +121,36 @@ void setup() {
 	i2s_set_pin(I2S_PORT, &pin_config);
 	i2s_zero_dma_buffer(I2S_PORT);
 
+	// 初始化计时起点
+	windowStartMs = millis();
+
 	WiFi.begin(WIFI_SSID, WIFI_PASS);
 	Serial.print("WiFi connecting...");
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(400);
+	uint32_t wifiStart = millis();
+	const uint32_t WIFI_TIMEOUT = 10000; // 10秒超时
+	while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < WIFI_TIMEOUT) {
+		delay(200);
 		Serial.print(".");
 	}
-	Serial.println("\nWiFi OK, IP: " + WiFi.localIP().toString());
+	if (WiFi.status() == WL_CONNECTED) {
+		Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
+	} else {
+		Serial.println("\nWiFi connect timeout, continue run without WiFi");
+	}
 
-	server.on("/", handleRoot);
 	server.on("/api/data", handleApiData);
 	server.begin();
-	Serial.println("Web Server Started");
+	Serial.println("Web server started");
 }
+
 void loop() {
-	updateLeq();
 	server.handleClient();
-	// i2s缓冲区
+	updateLeq();
+
+	// 可选：断线自动重连
+	static uint32_t reconnectTimer = 0;
+	if (WiFi.status() != WL_CONNECTED && millis() - reconnectTimer > 5000) {
+		reconnectTimer = millis();
+		WiFi.begin(WIFI_SSID, WIFI_PASS);
+	}
 }
