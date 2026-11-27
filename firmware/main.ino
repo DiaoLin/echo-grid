@@ -218,7 +218,7 @@ bool batchUploadReadings(ReadingItem arr[], int num)
   return true;
 }
 
-// ---------- 缓存（加锁，HTTP 不持锁） ----------
+// ---------- 缓存（加锁 + 超时防死锁，HTTP 不持锁） ----------
 void pushCache(const ReadingItem& item)
 {
   if (item.time_iso[0] == '\0')
@@ -226,13 +226,20 @@ void pushCache(const ReadingItem& item)
     Serial.println("[Cache] skip push, empty time");
     return;
   }
-  xSemaphoreTake(cacheMutex, portMAX_DELAY);
+
+  if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) != pdTRUE)
+  {
+    Serial.println("[Cache] mutex timeout, drop reading");
+    return;
+  }
+
   if (cacheCnt >= MAX_CACHE_NUM)
   {
     xSemaphoreGive(cacheMutex);
     Serial.println("[Cache] full, drop new reading");
     return;
   }
+
   cacheBuf[cacheCnt] = item;   // POD，memcpy 安全
   cacheCnt++;
   xSemaphoreGive(cacheMutex);
@@ -240,22 +247,51 @@ void pushCache(const ReadingItem& item)
 
 void flushCache()
 {
-  ReadingItem local[MAX_CACHE_NUM];
+  ReadingItem* local = NULL;
   int n = 0;
 
-  xSemaphoreTake(cacheMutex, portMAX_DELAY);
-  n = cacheCnt;
-  if (n > 0) memcpy(local, cacheBuf, sizeof(ReadingItem) * n);
-  xSemaphoreGive(cacheMutex);   // 发送前解锁，避免阻塞主 loop
-
-  if (n <= 0) return;
-
-  if (batchUploadReadings(local, n))
+  // ---- 1) 持锁拷贝，尽快释放 ----
+  if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) != pdTRUE)
   {
-    xSemaphoreTake(cacheMutex, portMAX_DELAY);
-    cacheCnt = 0;
-    xSemaphoreGive(cacheMutex);
-    Serial.println("[Cache] flush success, cache cleared");
+    Serial.println("[Cache] flush: mutex timeout");
+    return;
+  }
+  n = cacheCnt;
+  if (n > 0)
+  {
+    local = (ReadingItem*)malloc(sizeof(ReadingItem) * n);
+    if (!local)
+    {
+      xSemaphoreGive(cacheMutex);
+      Serial.println("[Cache] malloc failed, skip flush");
+      return;
+    }
+    memcpy(local, cacheBuf, sizeof(ReadingItem) * n);
+  }
+  xSemaphoreGive(cacheMutex);   // 发送前解锁
+
+  if (n <= 0 || !local) return;
+
+  // ---- 2) 不持锁发送（HTTP 可能阻塞 1~3s） ----
+  bool ok = batchUploadReadings(local, n);
+  free(local);
+
+  // ---- 3) 成功后只删已发送的前 n 条，保留并发新增 ----
+  if (ok)
+  {
+    if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
+      int remain = cacheCnt - n;
+      if (remain > 0)
+        memmove(cacheBuf, cacheBuf + n, sizeof(ReadingItem) * remain);
+      cacheCnt = (remain > 0) ? remain : 0;
+      xSemaphoreGive(cacheMutex);
+      Serial.printf("[Cache] flush success, remain %d\n", cacheCnt);
+    }
+    else
+    {
+      Serial.println("[Cache] flush ok but mutex timeout on clear");
+    }
   }
   else
   {
@@ -263,10 +299,12 @@ void flushCache()
   }
 }
 
-// ---------- 后台上报任务 ----------
+// ---------- 后台上报任务（带失败退避） ----------
 void uploadTask(void *pvParam)
 {
   ReadingItem item;
+  uint32_t backoffMs = 0;
+
   for (;;)
   {
     if (xQueueReceive(uploadQueue, &item, portMAX_DELAY) == pdTRUE)
@@ -276,7 +314,27 @@ void uploadTask(void *pvParam)
       {
         pushCache(item);
       }
-      flushCache();
+
+      // 失败退避：连续失败时延长 flush 间隔，避免疯狂重连 TLS
+      static uint32_t lastFlushMs = 0;
+      uint32_t now = millis();
+      if (now - lastFlushMs >= backoffMs)
+      {
+        lastFlushMs = now;
+        int before = cacheCnt;
+        flushCache();
+        // 若 flush 后缓存没减少，说明仍失败，退避翻倍（上限 60s）
+        if (cacheCnt >= before && before > 0)
+        {
+          backoffMs = (backoffMs == 0) ? 5000 : backoffMs * 2;
+          if (backoffMs > 60000) backoffMs = 60000;
+        }
+        else
+        {
+          backoffMs = 0;   // 成功则清零
+        }
+      }
+
       vTaskDelay(pdMS_TO_TICKS(1)); // 让出 CPU
     }
   }
