@@ -43,10 +43,20 @@ const i2s_pin_config_t pin_config = {
 bool readInstantLp(float &outLp) {
 	int16_t sample[FRAME_SAMPLES];
 	uint32_t samplesRead;
-	esp_err_t ret = i2s_read(I2S_PORT, sample, sizeof(sample), &samplesRead, 0); // 0=不阻塞！
-	if(ret != ESP_OK || samplesRead != sizeof(sample)) {
-		return false;
+	esp_err_t ret = i2s_read(I2S_PORT, sample, sizeof(sample), &samplesRead, 0); 
+	// 1. 首先处理真正的错误
+	if (ret != ESP_OK) {
+	    // 这里是硬件或参数错误，可以记录日志或进行错误恢复
+	    return false; 
 	}
+	// 2. 检查是否读到了完整的一帧数据
+	if (samplesRead != sizeof(sample)) {
+	    // 数据不完整（短读）。在 timeout=0 下，这通常意味着“暂时没有足够数据”。
+	    // 这不应该被视为致命错误，而应视为“本轮无完整数据”并等待下一次读取。
+	    // 例如，可以返回一个特殊的状态码，或者让调用者决定是否重试。
+	    return false; // 或返回其他表示“数据不足”的标识
+	}
+	// 3. 成功读满一帧
 	float sumSq = 0.0;
 	for(int i=0; i<FRAME_SAMPLES; i++) {
 		float s = sample[i] / 32768.0f;
