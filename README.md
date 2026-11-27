@@ -39,7 +39,7 @@ INMP441 麦克风
 
 **两级实现：**
 - **Level 1（12月前验证）**：ESP32 开热点或连校园 WiFi，作为简易 Web 服务器返回 JSON；手机/电脑浏览器打开网页，显示当前分贝和最近数据。
-- **Level 2（科技节完善）**：多测点数据上传，网页用 Chart.js 画曲线，用校园底图 + 彩色圆点/色阶做热力图，支持分时段切换。
+- **Level 2（科技节完善）**：多测点数据上传到 Node.js 后端（PostgreSQL），网页用 Chart.js 画曲线，用校园底图 + 彩色圆点/色阶做热力图，支持分时段切换。
 
 ---
 
@@ -62,6 +62,8 @@ INMP441 麦克风
 - **固件**：Arduino C++
 - **传感器驱动**：I2S 麦克风库
 - **通信**：ESP32 本地 HTTP 服务 / WiFi POST
+- **后端**：Node.js + Express（`web/`，标准 npm 包，作为独立子树维护）
+- **数据库**：PostgreSQL（测点、分贝读数、时段）
 - **前端**：HTML + CSS + JavaScript
 - **图表**：Chart.js
 - **热力图**：校园平面图底图 + SVG/Canvas 彩色圆点，按距离加权简易插值
@@ -77,14 +79,19 @@ echo-grid/
 ├── firmware/                 # ESP32 采集程序
 │   ├── main.ino              
 │   └── echo.cpp     
-├── web/                      # 网页看板
-│   ├── index.html
-│   ├── css/
-│   ├── js/
-│   │   ├── chart.js
-│   │   └── heatmap.js
-│   └── assets/
-│       └── campus-map.png    # 校园平面图底图
+├── web/                      # 网页看板 + Node.js 后端（独立子树）
+│   ├── src/                  # 后端 API（Express + PostgreSQL）
+│   ├── migrations/           # 数据库表结构
+│   ├── public/               # 前端静态文件（暂时为空）
+│   │   ├── index.html
+│   │   ├── css/
+│   │   ├── js/
+│   │   │   ├── chart.js
+│   │   │   └── heatmap.js
+│   │   └── assets/
+│   │       └── campus-map.png # 校园平面图底图
+│   ├── package.json          # 标准 npm 包配置
+│   └── README.md             # 后端启动与接口文档
 ├── data/
 │   ├── raw/                  # 原始采集数据
 │   └── processed/            # 整理后的数据、CSV
@@ -131,7 +138,7 @@ CSV 表头建议：`point_id,location,time,db,period`
 2. 按接线图连接 INMP441（I2S：SCK / WS / SD / VCC / GND）。
 3. 编译并刷入固件
 4. 浏览器访问 ESP32 的 IP 地址，应能看到 JSON 或简易页面。
-5. 打开 `web/index.html`，确认能读取并显示数据。
+5. 按 `web/README.md` 启动后端（Node.js + PostgreSQL），浏览器访问 `http://localhost:3000`，确认能读取并显示数据；前端文件放在 `web/public`。
 
 当前用手机 APP 验证方法，后续 ESP32 自动采集
 
