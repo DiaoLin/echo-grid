@@ -24,7 +24,7 @@ INMP441 麦克风
       │ I2S
       ▼
    ESP32
-   ├─ 计算平均分贝 / Leq
+   ├─ 计算Leq
    ├─ 本地 Web 返回 JSON（Level 1）
    └─ WiFi 上传到云端（Level 2）
       │
