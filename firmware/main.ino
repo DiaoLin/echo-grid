@@ -11,7 +11,6 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
-
 // ===================== 配置区 ===============================
 const char* WIFI_SSID     = "你的WiFi名称";
 const char* WIFI_PASS     = "你的WiFi密码";
@@ -24,7 +23,7 @@ const int SAMPLE_RATE  = 32000;
 const int FRAME_SAMPLES = 512;
 
 const float LEQ_DURATION = 5.0f;
-const float CALIB_OFFSET = 0.0f;
+const float CALIB_OFFSET = 120.0f;
 
 const int SCK_PIN = 26;
 const int WS_PIN  = 25;
@@ -37,19 +36,41 @@ const uint32_t WIFI_RECONNECT_INTERVAL  = 5000;
 const uint32_t UPLOAD_INTERVAL          = 5000;
 const int MAX_CACHE_NUM = 50;
 const int QUEUE_DEPTH   = 8;
-const int UPLOAD_TASK_STACK = 12288;   // R2/R5: TLS 场景 10KB+，用 12288 更稳
+const int UPLOAD_TASK_STACK = 12288;
 // =============================================================
 
-// ===================== R3: 根 CA 证书（陈瀚的后端证书链） =====================
-// 说明：把后端证书链中的根 CA 或中间 CA 的 PEM 粘贴到下方（含 BEGIN/END 首尾行）。
-// 若是 Let's Encrypt，可放 ISRG Root X1 或对应中间证书；若是自签 CA，放你的 CA PEM。
-// 留空的话运行时会 TLS 握手失败（不会崩溃，日志会打印 code 负数），务必填好。
+// ===================== 证书 =====================
 static const char ROOT_CA_PEM[] = R"(
 -----BEGIN CERTIFICATE-----
-请把你的后端根CA或中间CA证书PEM粘贴到此处
+MIIE2zCCAsOgAwIBAgIRAKICU/FfJpHAXcHOE7m8yk4wDQYJKoZIhvcNAQELBQAw
+LjELMAkGA1UEBhMCVVMxDTALBgNVBAoTBElTUkcxEDAOBgNVBAMTB1Jvb3QgWVIw
+HhcNMjUwOTAzMDAwMDAwWhcNMjgwOTAyMjM1OTU5WjAzMQswCQYDVQQGEwJVUzEW
+MBQGA1UEChMNTGV0J3MgRW5jcnlwdDEMMAoGA1UEAxMDWVIxMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoVi8X2xCYgMXvJxNPKp/oF13UMgmPABB07VC
+LNDtoXmt9luEZNJSBV10VyT1Pz6LD8Zq1d2gc43WNl1AdRrj4sEnazbOiz0nPpmG
+Bp2hui49oZtDIY6wdKeZAi5BbNU20CH6RSBBMLSQ9cXrH8dxdv4PAJ45ssGML68U
+SE3BsjC2a6cAN9L5CgXVIQi5tfNiTPoFZZ3S0OlXqLmmtdV95udWAb5b6e/F49Di
+CsH0Y00Ag72BVIb1hzynmKe+X0mERBTtsb3BwmpV9ipeBjMLoR/D9cHxHQCWoi5l
+TmXwY015J5rGelz1nZjJuxc2kioaX29XJBnhMkP531rSdG5uMwIDAQABo4HuMIHr
+MA4GA1UdDwEB/wQEAwIBhjATBgNVHSUEDDAKBggrBgEFBQcDATASBgNVHRMBAf8E
+CDAGAQH/AgEAMB0GA1UdDgQWBBQfLzW+RhSCzUCxrnksVXj699Ro+zAfBgNVHSME
+GDAWgBTe51tg0CJtQCh9Pw0B/qS1UrRRlDAyBggrBgEFBQcBAQQmMCQwIgYIKwYB
+BQUHMAKGFmh0dHA6Ly95ci5pLmxlbmNyLm9yZy8wEwYDVR0gBAwwCjAIBgZngQwB
+AgEwJwYDVR0fBCAwHjAcoBqgGIYWaHR0cDovL3lyLmMubGVuY3Iub3JnLzANBgkq
+hkiG9w0BAQsFAAOCAgEA0+zvMq3kHig1ddTmmm+RibTr9/RpX7k4buanMMRqbV/y
+IvP82zAHN3mvaw+cASuVsdpd0ikjhr4hnhJQLQOzOp2ccKrsdGOAgo0vddeISFAq
+EWEV4lmUM3vFF796up+bSgmJ1u6RupDCMxDgF8M3eLvGuj6L0lu3zkQ0KuQLnKxL
+tB0oQqn1Idg5CuuGpMvQzk29Pa3D/qHurc0EIM9SxukQuJqq63lxsYyRQFU8yMBO
+hq1w5LbfaWNRrz1uklOfI/pYkAb2E2MTZrAMQkBIE2S8Jt1F8gRc96o/xOsrgvSk
+a84AisX6xq1lz1Z7jGvrnXc4TMcjxZTjiTaihcYI1JIXZiLtEMSCa5l3cu8YWd6z
+dLRQlqRdclVjuQfNHawRJ6GWlkK0QJosivTKwdBw3KxEtzGo8yMHERbsy57gP1UX
+HOMcmZYQC0gtyR3SxfenIM/MxC3Ia2Ypab/kQ/CTnlIn2KQ5JUC6NYrGCbhFN9bp
+5lKJStEwCUnLpntcrXk5XVDCNv/5RyWpRThkGOV7GetKkQ0qAY8hCzWK6oqnAhDZ
+cjlYVdWfqOw3DIOX6EDNBgAqHarRVxyF9QZdOaXSyPJ0ueD2BYJEBgaCGQ8rAaU/
+Qc123V5LTXDZW4CcsPBDyhy4v+c8hClAyw/IkJlfBqxB9D+/wvIMHgECZ4ptP6o=
 -----END CERTIFICATE-----
 )";
-// ===============================================================================
+// =============================================================
 
 WebServer server(80);
 
@@ -59,36 +80,39 @@ float sumT      = 0.0f;
 float lastLeq = 0.0f;
 float lastLp  = 0.0f;
 bool  leqValid = false;
-bool  leqDirty = false;      // D1: 窗口切换置 true，处理完（入队或落缓存）清 false
+bool  leqDirty = false;      
 
-// 上报队列（POD 结构，安全 memcpy）
 struct ReadingItem {
   char  point_id[16];
   char  location[64];
   char  time_iso[40];
   float db;
   char  period[16];
+  uint32_t seq;
 };
 
 QueueHandle_t     uploadQueue  = NULL;
 SemaphoreHandle_t cacheMutex   = NULL;
 
-// 环形缓冲：head 指向最旧，cnt 为当前条数
 ReadingItem cacheBuf[MAX_CACHE_NUM];
 int cacheHead = 0;
 int cacheCnt  = 0;
 
+ReadingItem uploadBatchBuf[MAX_CACHE_NUM];
+uint32_t readingSeq = 1;
+uint32_t g_maxUploadSeq = 0; // 记录已成功发送的最大序列号
+
 uint32_t lastUploadTick = 0;
 static bool ntpLogPrinted = false;
+static uint32_t lastNtpWarnTick = 0;
 
-// R3 + R6: 全局复用同一 WiFiClientSecure（仅 uploadTask 单任务访问）
 static WiFiClientSecure g_tlsClient;
 static bool g_tlsReady = false;
 
 static void tlsEnsureReady()
 {
   if (g_tlsReady) return;
-  g_tlsClient.setCACert(ROOT_CA_PEM);   // R3: 校验证书，不再 setInsecure
+  g_tlsClient.setCACert(ROOT_CA_PEM);   
   g_tlsReady = true;
 }
 
@@ -117,16 +141,16 @@ const i2s_pin_config_t pin_config = {
 // ---------- 工具函数 ----------
 String getISO8601Time()
 {
-  struct tm now;
-  // R1: 超时 0ms，NTP 未就绪时立即返回，不阻塞 loop
-  if (!getLocalTime(&now, 0))
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  localtime_r(&now, &timeinfo); 
+
+  if (timeinfo.tm_year < (2020 - 1900))
   {
-    if (!ntpLogPrinted) { Serial.println("[NTP] time sync not ready"); ntpLogPrinted = true; }
     return "";
   }
-  ntpLogPrinted = false;
   char buf[32];
-  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S+08:00", &now);
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S+08:00", &timeinfo);
   return String(buf);
 }
 
@@ -137,15 +161,12 @@ void copyToBuf(char* dst, size_t dstSize, const String& s)
   dst[dstSize - 1] = '\0';
 }
 
-// ---------- WiFi 保活 ----------
 void wifiServiceTick()
 {
   static uint32_t reconnectTimer = 0;
   wl_status_t st = WiFi.status();
   if (st == WL_CONNECTED) return;
-
-  if (st != WL_DISCONNECTED && st != WL_CONNECT_FAILED && st != WL_NO_SSID_AVAIL)
-    return;
+  if (st != WL_DISCONNECTED && st != WL_CONNECT_FAILED && st != WL_NO_SSID_AVAIL) return;
 
   if (millis() - reconnectTimer > WIFI_RECONNECT_INTERVAL)
   {
@@ -156,31 +177,48 @@ void wifiServiceTick()
 }
 
 // ---------- HTTP ----------
-static inline bool httpIsSuccess(int code) { return code >= 200 && code < 300; }
+enum UploadStatus {
+  UPLOAD_OK,      
+  UPLOAD_RETRY,   
+  UPLOAD_DROP     
+};
 
-bool uploadSingleReading(const ReadingItem& item)
+UploadStatus checkHttpStatus(int code, const char* tag)
 {
-  if (WiFi.status() != WL_CONNECTED) return false;
-  if (item.time_iso[0] == '\0')     return false;
+  if (code >= 200 && code < 300) return UPLOAD_OK;
+  if (code >= 400 && code < 500 && code != 408 && code != 429) {
+    Serial.printf("[HTTP] %s drop (fatal client error), code=%d\n", tag, code);
+    return UPLOAD_DROP;
+  }
+  Serial.printf("[HTTP] %s fail, retry later, code=%d\n", tag, code);
+  return UPLOAD_RETRY;
+}
+
+UploadStatus uploadSingleReading(const ReadingItem& item)
+{
+  if (WiFi.status() != WL_CONNECTED) return UPLOAD_RETRY;
+  if (item.time_iso[0] == '\0')     return UPLOAD_DROP;
 
   tlsEnsureReady();
   HTTPClient http;
   http.setTimeout(6000);
-  http.setReuse(true);                                   // R6: 允许 keep-alive
+  http.setReuse(true);
   String url = API_BASE + "/api/readings";
-  if (!http.begin(g_tlsClient, url))                     // R6: 复用同一 client
+  
+  if (!http.begin(g_tlsClient, url))
   {
-    Serial.println("[HTTP] single begin fail");
-    g_tlsClient.stop();
-    return false;
+    Serial.println("[HTTP] single begin fail, reset tls client");
+    g_tlsClient.stop(); // 只在 begin 失败时重置
+    return UPLOAD_RETRY;
   }
   http.addHeader("Content-Type", "application/json");
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<512> doc;
   doc["point_id"] = item.point_id;
   doc["location"] = item.location;
   doc["time"]     = item.time_iso;
   doc["db"]       = item.db;
+  doc["seq"]      = item.seq;
   if (item.period[0] != '\0') doc["period"] = item.period;
 
   String payload;
@@ -188,29 +226,24 @@ bool uploadSingleReading(const ReadingItem& item)
   int code = http.POST(payload);
   http.end();
 
-  if (code < 0)
-  {
-    Serial.printf("[HTTP] single fail, code=%d\n", code);
-    g_tlsClient.stop();                                  // 清掉可能的坏连接
-    return false;
-  }
-  return httpIsSuccess(code);
+  return checkHttpStatus(code, "single");
 }
 
-bool batchUploadReadings(ReadingItem arr[], int num)
+UploadStatus batchUploadReadings(ReadingItem arr[], int num)
 {
-  if (WiFi.status() != WL_CONNECTED || num <= 0) return false;
+  if (WiFi.status() != WL_CONNECTED || num <= 0) return UPLOAD_RETRY;
 
   tlsEnsureReady();
   HTTPClient http;
   http.setTimeout(6000);
-  http.setReuse(true);                                   // R6
+  http.setReuse(true);
   String url = API_BASE + "/api/readings/batch";
-  if (!http.begin(g_tlsClient, url))                     // R6
+  
+  if (!http.begin(g_tlsClient, url))
   {
-    Serial.println("[HTTP] batch begin fail");
-    g_tlsClient.stop();
-    return false;
+    Serial.println("[HTTP] batch begin fail, reset tls client");
+    g_tlsClient.stop(); // 只在 begin 失败时重置
+    return UPLOAD_RETRY;
   }
   http.addHeader("Content-Type", "application/json");
 
@@ -226,14 +259,14 @@ bool batchUploadReadings(ReadingItem arr[], int num)
     obj["location"] = arr[i].location;
     obj["time"]     = arr[i].time_iso;
     obj["db"]       = arr[i].db;
+    obj["seq"]      = arr[i].seq;
     if (arr[i].period[0] != '\0') obj["period"] = arr[i].period;
   }
 
   if (arrJson.size() == 0)
   {
     http.end();
-    Serial.println("[Batch] all invalid, keep cache");
-    return false;
+    return UPLOAD_DROP; 
   }
 
   String payload;
@@ -241,104 +274,84 @@ bool batchUploadReadings(ReadingItem arr[], int num)
   int code = http.POST(payload);
   http.end();
 
-  if (!httpIsSuccess(code))
-  {
-    Serial.printf("[HTTP] batch fail, code=%d\n", code);
-    g_tlsClient.stop();
-    return false;
-  }
-  return true;
+  return checkHttpStatus(code, "batch");
 }
 
 // ---------- 环形缓存 ----------
 void pushCache(const ReadingItem& item)
 {
   if (item.time_iso[0] == '\0') { Serial.println("[Cache] skip empty time"); return; }
-
-  if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) != pdTRUE)
-  {
-    Serial.println("[Cache] mutex timeout, drop reading");
-    return;
-  }
+  if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) != pdTRUE) return;
 
   int idx = (cacheHead + cacheCnt) % MAX_CACHE_NUM;
   if (cacheCnt >= MAX_CACHE_NUM)
   {
-    cacheHead = (cacheHead + 1) % MAX_CACHE_NUM;   // 覆盖最旧
+    // 【修复 2】检查是否覆盖了还没上传成功的旧数据
+    if (cacheBuf[cacheHead].seq > g_maxUploadSeq) {
+      Serial.printf("[Cache warn] overwrite unsent seq %u (> maxUploadSeq %u)\n", cacheBuf[cacheHead].seq, g_maxUploadSeq);
+    }
+    
+    cacheHead = (cacheHead + 1) % MAX_CACHE_NUM;
     Serial.println("[Cache] full, overwrite oldest");
   }
-  else
-  {
-    cacheCnt++;
-  }
-  cacheBuf[idx] = item;
+  else cacheCnt++;
 
+  cacheBuf[idx] = item;
   xSemaphoreGive(cacheMutex);
 }
 
-// D3: 返回 true 表示批量发送成功（无论缓存是否为空）
 bool flushCache()
 {
-  ReadingItem* local = NULL;
   int n = 0;
-  int headSnapshot = 0;
-
-  if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) != pdTRUE)
-  {
-    Serial.println("[Cache] flush: mutex timeout");
-    return false;
-  }
+  if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+  
   n = cacheCnt;
-  headSnapshot = cacheHead;
   if (n > 0)
   {
-    local = (ReadingItem*)malloc(sizeof(ReadingItem) * n);
-    if (!local)
-    {
-      xSemaphoreGive(cacheMutex);
-      Serial.println("[Cache] malloc failed, skip flush");
-      return false;
-    }
-    for (int i = 0; i < n; i++)
-      local[i] = cacheBuf[(headSnapshot + i) % MAX_CACHE_NUM];
+    for (int i = 0; i < n; i++) uploadBatchBuf[i] = cacheBuf[(cacheHead + i) % MAX_CACHE_NUM];
   }
   xSemaphoreGive(cacheMutex);
 
-  if (n <= 0) return true;   // 无数据可发，视为成功（避免误判失败）
+  if (n <= 0) return true;
 
-  bool ok = batchUploadReadings(local, n);
-  free(local);
+  UploadStatus status = batchUploadReadings(uploadBatchBuf, n);
 
-  if (ok)
+  if (status == UPLOAD_OK || status == UPLOAD_DROP)
   {
+    uint32_t newMaxSeq = 0;
+    for(int i=0;i<n;i++){
+      if(uploadBatchBuf[i].seq > newMaxSeq) newMaxSeq = uploadBatchBuf[i].seq;
+    }
+    if(newMaxSeq > g_maxUploadSeq) g_maxUploadSeq = newMaxSeq;
+
     if (xSemaphoreTake(cacheMutex, pdMS_TO_TICKS(100)) == pdTRUE)
     {
-      if (cacheHead == headSnapshot && cacheCnt >= n)
-      {
-        cacheHead = (cacheHead + n) % MAX_CACHE_NUM;
-        cacheCnt -= n;
-        Serial.printf("[Cache] flush success, remain %d\n", cacheCnt);
+      int popped = 0;
+      while (cacheCnt > 0) {
+        if (cacheBuf[cacheHead].seq <= g_maxUploadSeq) {
+          cacheHead = (cacheHead + 1) % MAX_CACHE_NUM;
+          cacheCnt--;
+          popped++;
+        } else {
+          break;
+        }
       }
-      else
-      {
-        // 发送期间被覆盖：保留缓存，宁可重发不丢
-        Serial.println("[Cache] head changed during send, keep cache");
+      
+      if (status == UPLOAD_DROP) {
+        Serial.printf("[Cache] dropped %d toxic entries\n", popped);
+      } else {
+        Serial.printf("[Cache] flush success, remain %d\n", cacheCnt);
       }
       xSemaphoreGive(cacheMutex);
     }
-    else
-    {
-      Serial.println("[Cache] flush ok but mutex timeout on clear");
-    }
+    return true; 
   }
-  else
-  {
-    Serial.println("[Cache] flush failed, keep cache for retry");
-  }
-  return ok;
+  
+  Serial.println("[Cache] flush failed, keep cache for retry");
+  return false;
 }
 
-// ---------- 上报任务（R4：连续失败计数驱动退避） ----------
+// ---------- 上报任务 ----------
 void uploadTask(void *pvParam)
 {
   ReadingItem item;
@@ -348,39 +361,47 @@ void uploadTask(void *pvParam)
 
   for (;;)
   {
-    if (xQueueReceive(uploadQueue, &item, portMAX_DELAY) == pdTRUE)
+    BaseType_t got = xQueueReceive(uploadQueue, &item, pdMS_TO_TICKS(1000));
+    
+    bool anySuccess = false;
+    
+    if (got == pdTRUE)
     {
-      bool singleOk = uploadSingleReading(item);
-      if (!singleOk) pushCache(item);
-
-      // 只在退避窗口过期时尝试 flush，防止失败风暴
-      bool anySuccess = singleOk;
-      uint32_t now = millis();
-      if (now - lastFlushMs >= backoffMs)
-      {
-        lastFlushMs = now;
-        if (flushCache()) anySuccess = true;
+      UploadStatus singleStatus = uploadSingleReading(item);
+      
+      if (singleStatus == UPLOAD_RETRY) {
+        pushCache(item);
+      } else if (singleStatus == UPLOAD_DROP) {
+        Serial.println("[Queue] dropped toxic single entry");
+      } else if (singleStatus == UPLOAD_OK) {
+        if(item.seq > g_maxUploadSeq) g_maxUploadSeq = item.seq;
+        anySuccess = true;
       }
-
-      // R4: 以连续失败次数驱动退避，而非靠缓存条数前后比较
-      if (anySuccess)
-      {
-        failStreak = 0;
-        backoffMs  = 0;
-      }
-      else
-      {
-        failStreak++;
-        // 5s, 10s, 20s, 40s, 60s, 60s...
-        uint32_t shift = (failStreak > 4) ? 4 : failStreak;
-        backoffMs = 5000u * (1u << (shift - 1));
-        if (backoffMs > 60000u) backoffMs = 60000u;
-        Serial.printf("[Backoff] failStreak=%lu, next flush in %lu ms\n",
-                      (unsigned long)failStreak, (unsigned long)backoffMs);
-      }
-
-      vTaskDelay(pdMS_TO_TICKS(1));
     }
+
+    uint32_t now = millis();
+    if (now - lastFlushMs >= backoffMs)
+    {
+      lastFlushMs = now;
+      if (flushCache()) anySuccess = true;
+    }
+
+    if (anySuccess)
+    {
+      failStreak = 0;
+      backoffMs  = 0;
+    }
+    else if (got == pdTRUE) // 确实处理了数据且全部失败，退避加倍
+    {
+      failStreak++;
+      uint32_t shift = (failStreak > 4) ? 4 : failStreak;
+      backoffMs = 5000u * (1u << (shift - 1));
+      if (backoffMs > 60000u) backoffMs = 60000u;
+      Serial.printf("[Backoff] failStreak=%lu, next flush in %lu ms\n",
+                    (unsigned long)failStreak, (unsigned long)backoffMs);
+    }
+    
+    taskYIELD();
   }
 }
 
@@ -451,6 +472,9 @@ void handleApiData()
 
   String payload;
   serializeJson(doc, payload);
+  
+  // 【修复 3】添加 CORS 支持，允许前端看板跨域获取数据
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", payload);
 }
 
@@ -459,7 +483,7 @@ void handleRoot()
   server.send(200, "text/plain",
       "EchoGrid Node\n/api/data 获取噪声JSON\n"
       "Leq: by accumulated sample time window\n"
-      "Cache: ring buffer; Upload: separate RTOS task + TLS keep-alive");
+      "Cache: ring buffer + seq幂等; Upload: Core0 RTOS task, periodic flush");
 }
 
 // ---------- setup / loop ----------
@@ -473,10 +497,16 @@ void setup()
 
   uploadQueue = xQueueCreate(QUEUE_DEPTH, sizeof(ReadingItem));
   cacheMutex  = xSemaphoreCreateMutex();
-  if (!uploadQueue || !cacheMutex) Serial.println("[Init] queue/mutex failed!");
+  
+  if (!uploadQueue || !cacheMutex) {
+    Serial.println("[Init] queue/mutex failed! HALT");
+    while (1) {
+      delay(500);
+      Serial.print(".");
+    }
+  }
 
-  // R2/R5: 栈 12288
-  xTaskCreate(uploadTask, "uploadTask", UPLOAD_TASK_STACK, NULL, 1, NULL);
+  xTaskCreatePinnedToCore(uploadTask, "uploadTask", UPLOAD_TASK_STACK, NULL, 2, NULL, 0);
 
   esp_err_t i2sRet = i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
   if (i2sRet != ESP_OK) Serial.printf("[I2S] install fail: %s\n", esp_err_to_name(i2sRet));
@@ -509,7 +539,6 @@ void loop()
   updateLeq();
   wifiServiceTick();
 
-  // 每个窗口最多上报一次；D1：无论入队还是落缓存都清 leqDirty
   if (leqDirty && millis() - lastUploadTick > UPLOAD_INTERVAL)
   {
     lastUploadTick = millis();
@@ -523,18 +552,21 @@ void loop()
       copyToBuf(item.time_iso, sizeof(item.time_iso), t);
       copyToBuf(item.period,   sizeof(item.period),   String(""));
       item.db = lastLeq;
+      item.seq = readingSeq++;
 
       if (xQueueSend(uploadQueue, &item, 0) != pdTRUE)
       {
         Serial.println("[Queue] full, push cache");
         pushCache(item);
       }
-      leqDirty = false;   // D1: 已"处理"（入队或落缓存），本窗口不再上报
+      leqDirty = false;
     }
     else
     {
-      Serial.println("[Upload] skip, NTP not ready");
-      // 保留 leqDirty，下轮 loop 重试
+      if(millis() - lastNtpWarnTick > 5000){
+        Serial.println("[Upload] skip, NTP not ready");
+        lastNtpWarnTick = millis();
+      }
     }
   }
 }
